@@ -6,12 +6,12 @@ from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 from motor.motor_asyncio import AsyncIOMotorClient
 
-# Credentials & Database Group ID
+# Credentials & Database Private Group ID
 API_ID = int(os.environ.get("API_ID", "38398715"))
 API_HASH = os.environ.get("API_HASH", "9d70e41f8c67908ed547e31c2cfe9c38")
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "8588875170:AAE-2TF39moR_LksMVaYbxG5JLHB-pASoQM")
 ADMIN_ID = int(os.environ.get("ADMIN_ID", "8471574210"))
-STORAGE_CHANNEL = int(os.environ.get("STORAGE_CHANNEL", "-1004463914808"))
+DATABASE_GROUP_ID = int(os.environ.get("STORAGE_CHANNEL", "-1004463914808"))
 DATABASE_URI = os.environ.get("DATABASE_URI", "mongodb+srv://Udeswal82_db_user:MovieBot12345@cluster0.bwrhkn0.mongodb.net/?retryWrites=true&w=majority")
 DATABASE_NAME = os.environ.get("DATABASE_NAME", "Cluster0")
 UPI_ID = os.environ.get("UPI_ID", "example@upi")
@@ -19,32 +19,32 @@ UPI_ID = os.environ.get("UPI_ID", "example@upi")
 # MongoDB
 mongo = AsyncIOMotorClient(DATABASE_URI)
 db = mongo[DATABASE_NAME]
-files_col = db["movies_index"]
+files_col = db["group_movies_index"]
 
-# FastAPI Keep-Alive for Render
+# FastAPI Keep-Alive Server for Render
 web_app = FastAPI()
 
 @web_app.get("/")
 def home():
-    return {"status": "bot_running_with_auto_forward_and_fetch"}
+    return {"status": "bot_running_with_private_group"}
 
 def run_web():
     port = int(os.environ.get("PORT", 8080))
     uvicorn.run(web_app, host="0.0.0.0", port=port)
 
-app = Client("toji_sync_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
+app = Client("toji_pvt_group_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 USER_PAGES = {}
 
-# 1. Start Command Handler
+# 1. Start Interface
 @app.on_message(filters.command("start") & filters.private)
 async def start_cmd(client, message):
     text = (
         "🥷 **I am #Toji v2.1**\n"
         "🍿 **Unlimited Movies & Web Series**\n"
-        "⚡ **Direct Cloud Sync & Instant Files**\n"
+        "⚡ **Direct Private Group Sync**\n"
         "💯 **100% Free, always**\n"
         "🏷️ **By The Filmy Men**\n\n"
-        "🔍 *Kisi bhi movie ya web series ka naam likh kar bhejein:*"
+        "🔍 *Kisi bhi movie ya series ka naam likh kar bhejein:*"
     )
     buttons = [
         [InlineKeyboardButton("🔍 Quick Help", callback_data="help"), InlineKeyboardButton("👮 Admin Support", url=f"tg://user?id={ADMIN_ID}")],
@@ -52,8 +52,8 @@ async def start_cmd(client, message):
     ]
     await message.reply_text(text, reply_markup=InlineKeyboardMarkup(buttons))
 
-# 2. Group Auto Indexer (ग्रुप में मौजूद सभी फाइलों को डेटाबेस में ट्रैक करना)
-@app.on_message((filters.chat(STORAGE_CHANNEL) | filters.channel) & (filters.document | filters.video))
+# 2. Private Group File Indexer (ग्रुप में डाली गई हर वीडियो को ऑटो-इंडेक्स करेगा)
+@app.on_message(filters.chat(DATABASE_GROUP_ID) & (filters.document | filters.video))
 async def auto_group_indexer(client, message):
     media = message.document or message.video
     if not media:
@@ -72,28 +72,26 @@ async def auto_group_indexer(client, message):
     }
     await files_col.update_one({"_id": doc["_id"]}, {"$set": doc}, upsert=True)
 
-# 3. Private Message Handler (Auto Forward to Group -> Search Keyword Files -> Reply to User)
+# 3. User Private Message Handler (Auto Forward to Pvt Group -> Search -> Return Results)
 @app.on_message(filters.private & ~filters.command(["start", "plan"]))
-async def handle_private_messages(client, message):
-    # A. Agar user koi Media (Video/Doc/Photo) bhejta hai -> Seedhe Group me forward hoga
+async def handle_user_input(client, message):
+    # A. User Media Forwarding to Group
     if message.document or message.video or message.audio or message.photo:
         try:
-            await message.forward(chat_id=STORAGE_CHANNEL)
-            await message.reply_text("✅ **File Private Database Group me forward ho gayi hai!**")
+            await message.forward(chat_id=DATABASE_GROUP_ID)
+            await message.reply_text("✅ **File Private Group me forward aur save ho gayi hai!**")
         except Exception as e:
-            print(f"Error forwarding media: {e}")
+            print(f"Error forwarding media to group: {e}")
         return
 
-    # B. User Text (Keyword/Movie Name)
+    # B. User Query Forwarding to Group
     query = message.text.strip()
-
-    # Step 1: User ke message ko turant Group me forward karein
     try:
-        await message.forward(chat_id=STORAGE_CHANNEL)
+        await message.forward(chat_id=DATABASE_GROUP_ID)
     except Exception as e:
-        print(f"Error forwarding text to group: {e}")
+        print(f"Error forwarding query to group: {e}")
 
-    # Step 2: Usi keyword ke jitne bhi matching files/messages hain, unhe group database se dhoondein
+    # Search Matching Files from Group Database
     words = query.split()
     regex_pattern = ".*".join(words)
 
@@ -105,15 +103,15 @@ async def handle_private_messages(client, message):
 
     if not results:
         await message.reply_text(
-            f"📨 **Aapka request group me forward kar diya gaya hai.**\n"
-            f"❌ Lekin abhi `{query}` se judi koi file group me nahi mili. Kripya check karein."
+            f"📨 **Aapka message Private Group me forward kar diya gaya hai.**\n"
+            f"❌ Lekin abhi `{query}` se match hoti hui file group me nahi mili."
         )
         return
 
-    # Step 3: Match hone wali saari files ko list/button bana kar user ke bot chat me bhej do
     USER_PAGES[message.from_user.id] = {"query": query, "results": results, "page": 0}
     await display_page(client, message.chat.id, message.id, message.from_user.id, edit=False)
 
+# 4. Multi-Quality Page Display
 async def display_page(client, chat_id, reply_id, user_id, edit=False, msg_id=None):
     data = USER_PAGES.get(user_id)
     if not data:
@@ -152,7 +150,7 @@ async def display_page(client, chat_id, reply_id, user_id, edit=False, msg_id=No
     else:
         await client.send_message(chat_id, cap, reply_to_message_id=reply_id, reply_markup=InlineKeyboardMarkup(btn))
 
-# 4. Callback Handlers (Button dabane par Video File Seedhe Bot Chat me bhejna)
+# 5. Callback Handlers (Group se Video File wapas Bot chat me deliver karna)
 @app.on_callback_query()
 async def callback_actions(client, query: CallbackQuery):
     u_id = query.from_user.id
@@ -170,8 +168,7 @@ async def callback_actions(client, query: CallbackQuery):
         doc_id = d.replace("send_", "")
         doc = await files_col.find_one({"_id": doc_id})
         if doc:
-            await query.answer("Forwarding Video to Bot...", show_alert=False)
-            # Group se message ko seedhe user ke bot chat me copy/forward karega
+            await query.answer("Forwarding file from group...", show_alert=False)
             await client.copy_message(
                 chat_id=query.message.chat.id,
                 from_chat_id=doc["chat_id"],
@@ -213,4 +210,4 @@ async def callback_actions(client, query: CallbackQuery):
 if __name__ == "__main__":
     threading.Thread(target=run_web, daemon=True).start()
     app.run()
-    
+        
