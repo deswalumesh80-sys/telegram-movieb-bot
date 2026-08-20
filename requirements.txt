@@ -1,7 +1,5 @@
 pyrofork
 tgcrypto
-beautifulsoup4
-cloudscraper
-requests
-uvicorn
-fastapi
+aiohttp
+motor
+pymongo
