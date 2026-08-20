@@ -1,46 +1,62 @@
 import os
 import threading
 import uvicorn
-import requests
 from fastapi import FastAPI
 from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
+from motor.motor_asyncio import AsyncIOMotorClient
 
 # Configuration
 API_ID = int(os.environ.get("API_ID", "38398715"))
 API_HASH = os.environ.get("API_HASH", "9d70e41f8c67908ed547e31c2cfe9c38")
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "8588875170:AAE-2TF39moR_LksMVaYbxG5JLHB-pASoQM")
 ADMIN_ID = int(os.environ.get("ADMIN_ID", "8471574210"))
+DATABASE_URI = os.environ.get("DATABASE_URI", "mongodb+srv://Udeswal82_db_user:MovieBot12345@cluster0.bwrhkn0.mongodb.net/?retryWrites=true&w=majority")
+DATABASE_NAME = os.environ.get("DATABASE_NAME", "Cluster0")
+STORAGE_CHANNEL = int(os.environ.get("STORAGE_CHANNEL", "-1002361665487"))
 UPI_ID = os.environ.get("UPI_ID", "example@upi")
 
-# Kinopoisk Dev API Settings
-KP_API_KEY = os.environ.get("KP_API_KEY", "XN7WBQA-MF24EYN-Q4SWZHF-7AR2715")
-KP_API_URL = os.environ.get("KP_API_URL", "https://api.kinopoisk.dev/v1.4")
+# MongoDB
+mongo = AsyncIOMotorClient(DATABASE_URI)
+db = mongo[DATABASE_NAME]
+files_col = db["files"]
 
-# Keep-Alive Web Server for Render
+# Render Keep-Alive
 web_app = FastAPI()
 
 @web_app.get("/")
 def home():
-    return {"status": "bot_running_successfully"}
+    return {"status": "running"}
 
 def run_web():
     port = int(os.environ.get("PORT", 8080))
     uvicorn.run(web_app, host="0.0.0.0", port=port)
 
-app = Client("toji_kinopoisk_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
+app = Client("toji_stream_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 USER_PAGES = {}
 
-# 1. Start Interface
-@app.on_message(filters.command("start"))
+@app.on_message(filters.command("start") & filters.private)
 async def start_cmd(client, message):
+    # Direct File Fetch Handler
+    if len(message.command) > 1:
+        doc_id = message.command[1]
+        doc = await files_col.find_one({"_id": doc_id})
+        if doc:
+            await client.copy_message(
+                chat_id=message.chat.id,
+                from_chat_id=doc["chat_id"],
+                message_id=doc["msg_id"],
+                caption=f"🎬 **{doc['file_name']}**\n\n⚡ **Powered By :** Filmy Men"
+            )
+            return
+
     text = (
         "🥷 **I am #Toji v2.1**\n"
         "🍿 **Unlimited files & series**\n"
-        "⚡ **Get instant stream**\n"
+        "⚡ **Direct In-App Telegram Player**\n"
         "💯 **100% Free, always**\n"
         "🏷️ **By The Filmy Men**\n\n"
-        "🔍 *Kisi bhi movie ya web series ka naam likh kar bhejein.*"
+        "🔍 *Kisi bhi movie ka naam likh kar bhejein:*"
     )
     buttons = [
         [InlineKeyboardButton("🔍 Quick Help", callback_data="help"), InlineKeyboardButton("👮 Admin Support", url=f"tg://user?id={ADMIN_ID}")],
@@ -48,31 +64,39 @@ async def start_cmd(client, message):
     ]
     await message.reply_text(text, reply_markup=InlineKeyboardMarkup(buttons))
 
-# 2. Search Handler (Kinopoisk Cloud API)
-@app.on_message(filters.text & ~filters.command(["start", "plan"]))
-async def kinopoisk_search(client, message):
-    query = message.text.strip()
-    if query.startswith("/"):
+# Channel Auto Indexer (जब चैनल में वीडियो डाली जाए)
+@app.on_message(filters.channel & (filters.document | filters.video))
+async def auto_index(client, message):
+    media = message.document or message.video
+    if not media:
         return
-
-    status_msg = await message.reply_text("🔎 **Searching server for:** `" + query + "`...")
+    f_name = media.file_name or message.caption or "Movie File"
+    size = round(media.file_size / (1024 * 1024), 1)
+    size_str = f"{round(size/1024, 2)} GB" if size >= 1024 else f"{size} MB"
     
-    headers = {
-        "X-API-KEY": KP_API_KEY,
-        "Accept": "application/json"
+    doc = {
+        "_id": f"{message.chat.id}_{message.id}",
+        "file_name": f_name,
+        "file_size": size_str,
+        "chat_id": message.chat.id,
+        "msg_id": message.id
     }
-    
-    search_url = f"{KP_API_URL}/movie/search"
-    params = {"page": 1, "limit": 15, "query": query}
+    await files_col.update_one({"_id": doc["_id"]}, {"$set": doc}, upsert=True)
+
+# Search Handler
+@app.on_message(filters.text & ~filters.command(["start", "plan"]))
+async def movie_search(client, message):
+    query = message.text.strip()
+    status_msg = await message.reply_text(f"🔎 **Searching database for:** `{query}`...")
     
     try:
-        res = requests.get(search_url, headers=headers, params=params, timeout=10).json()
-        results = res.get("docs", [])
+        cursor = files_col.find({"file_name": {"$regex": query, "$options": "i"}})
+        results = await cursor.to_list(length=30)
     except Exception:
         results = []
 
     if not results:
-        await status_msg.edit_text("❌ **Koi movie nahi mili. Spelling check karein.**")
+        await status_msg.edit_text("❌ **Ye movie channel me nahi mili. Channel me upload/forward karein.**")
         return
 
     USER_PAGES[message.from_user.id] = {"query": query, "results": results, "page": 0}
@@ -90,16 +114,14 @@ async def display_page(client, chat_id, reply_id, user_id, edit=False, msg_id=No
     start = page * per_page
     current = results[start:start+per_page]
 
-    btn = [[InlineKeyboardButton("📩 Get All Files 📩", callback_data="get_all")]]
+    btn = []
     for item in current:
-        title = item.get("name") or item.get("alternativeName") or item.get("enName") or "Unknown"
-        year = item.get("year", "N/A")
-        item_id = item.get("id")
-        btn.append([InlineKeyboardButton(f"🎬 {title} ({year}) ↗️", callback_data=f"kp_{item_id}")])
+        btn_text = f"📁 {item['file_size']} | {item['file_name']}"[:42] + " ↗️"
+        btn.append([InlineKeyboardButton(btn_text, callback_data=f"send_{item['_id']}")])
 
     nav = []
     if total_pages > 1:
-        nav.append(InlineKeyboardButton(f"📑 Total {total_pages} Pages", callback_data="pages"))
+        nav.append(InlineKeyboardButton(f"📑 Pages {page+1}/{total_pages}", callback_data="pages"))
         if page < total_pages - 1:
             nav.append(InlineKeyboardButton("Next ⏩", callback_data="next_p"))
         elif page > 0:
@@ -112,9 +134,8 @@ async def display_page(client, chat_id, reply_id, user_id, edit=False, msg_id=No
     else:
         await client.send_message(chat_id, cap, reply_to_message_id=reply_id, reply_markup=InlineKeyboardMarkup(btn))
 
-# 3. Callbacks & Movie Detail Presentation (Toji Layout)
 @app.on_callback_query()
-async def handle_callbacks(client, query: CallbackQuery):
+async def callbacks(client, query: CallbackQuery):
     u_id = query.from_user.id
     d = query.data
 
@@ -126,49 +147,21 @@ async def handle_callbacks(client, query: CallbackQuery):
     elif d == "prev_p" and u_id in USER_PAGES:
         USER_PAGES[u_id]["page"] -= 1
         await display_page(client, query.message.chat.id, None, u_id, edit=True, msg_id=query.message.id)
-    elif d.startswith("kp_"):
-        kp_id = d.split("_")[1]
-        
-        # Details Fetch
-        headers = {"X-API-KEY": KP_API_KEY}
-        detail_url = f"{KP_API_URL}/movie/{kp_id}"
-        
-        try:
-            m = requests.get(detail_url, headers=headers, timeout=8).json()
-            title = m.get("name") or m.get("alternativeName") or m.get("enName") or "Movie Details"
-            rating = m.get("rating", {}).get("imdb") or m.get("rating", {}).get("kp") or "7.5"
-            stream_url = f"https://kinobox.tv/embed/{kp_id}"
-        except Exception:
-            title = "Movie Details"
-            rating = "7.5"
-            stream_url = f"https://kinobox.tv/embed/{kp_id}"
-
-        response_caption = (
-            f"🎬 **Movie Details Ready**\n"
-            f"🆔 **Subject ID :** `{kp_id}`\n"
-            f"⭐️ **Rating :** `{rating}`\n\n"
-            f"⚡ **Powered By :** MovieBox API\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━"
-        )
-        
-        watch_btn = InlineKeyboardMarkup([
-            [InlineKeyboardButton("▶️ Watch / Stream", url=stream_url), InlineKeyboardButton("⬇️ Download", url=stream_url)],
-            [InlineKeyboardButton("🔙 Back to List", callback_data="close_btn")]
-        ])
-        
-        await query.message.reply_text(response_caption, reply_markup=watch_btn)
+    elif d.startswith("send_"):
+        doc_id = d.replace("send_", "")
+        doc = await files_col.find_one({"_id": doc_id})
+        if doc:
+            await query.answer("Sending Video File...", show_alert=False)
+            await client.copy_message(
+                chat_id=query.message.chat.id,
+                from_chat_id=doc["chat_id"],
+                message_id=doc["msg_id"],
+                caption=f"🎬 **{doc['file_name']}**\n⚡ **Powered By :** Filmy Men"
+            )
     elif d == "plan_menu":
-        plan_text = (
-            "🌸 **Premium Plans And Pricing** 🌸\n\n"
-            "🏷️ **Plan 1 : 50₹ - 1 Month**\n"
-            "🏷️ **Plan 2 : 90₹ - 2 Month**\n"
-            "🏷️ **Plan 3 : 140₹ - 3 Month**\n"
-            "🏷️ **Plan 4 : 190₹ - 4 Month**\n\n"
-            "📌 *Select a plan:*"
-        )
+        plan_text = "🌸 **Premium Plans** 🌸\n\n🏷️ **Plan 1 : 50₹ - 1 Month**\n🏷️ **Plan 2 : 90₹ - 2 Month**"
         btns = [
             [InlineKeyboardButton("1 Month", callback_data="pay_50"), InlineKeyboardButton("2 Month", callback_data="pay_90")],
-            [InlineKeyboardButton("3 Month", callback_data="pay_140"), InlineKeyboardButton("4 Month", callback_data="pay_190")],
             [InlineKeyboardButton("← Back", callback_data="close_btn")]
         ]
         await query.message.reply_text(plan_text, reply_markup=InlineKeyboardMarkup(btns))
@@ -177,11 +170,11 @@ async def handle_callbacks(client, query: CallbackQuery):
         qr_url = f"https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=upi://pay?pa={UPI_ID}%26pn=MovieBot%26am={amt}%26cu=INR"
         p_btns = [
             [InlineKeyboardButton("📤 UPLOAD SCREENSHOT", url=f"tg://user?id={ADMIN_ID}")],
-            [InlineKeyboardButton("❌ CANCEL PAYMENT", callback_data="close_btn")]
+            [InlineKeyboardButton("❌ CANCEL", callback_data="close_btn")]
         ]
-        await query.message.reply_photo(photo=qr_url, caption=f"⚡ **{amt}₹ Plan Chuna Gaya Hai**\n\nScan karke payment screenshot bhejein.", reply_markup=InlineKeyboardMarkup(p_btns))
-    elif d in ["help", "ideas", "get_all"]:
-        await query.answer("Working option!", show_alert=False)
+        await query.message.reply_photo(photo=qr_url, caption=f"⚡ **{amt}₹ Pay karein**", reply_markup=InlineKeyboardMarkup(p_btns))
+    elif d in ["help", "ideas", "pages"]:
+        await query.answer("Working!", show_alert=False)
 
 if __name__ == "__main__":
     threading.Thread(target=run_web, daemon=True).start()
