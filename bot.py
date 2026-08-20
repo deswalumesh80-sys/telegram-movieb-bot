@@ -1,14 +1,28 @@
+import os
 from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 import requests
-import os
+from fastapi import FastAPI
+import uvicorn
+import threading
 
-# Render से Environment Variables उठाना
+# API Details
 API_ID = int(os.environ.get("API_ID"))
 API_HASH = os.environ.get("API_HASH")
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
-API_URL = "https://moviebox-api-98dn.onrender.com" 
+API_URL = "https://moviebox-api-98dn.onrender.com"
 
+# FastAPI Server (Render को खुश रखने के लिए)
+app_web = FastAPI()
+
+@app_web.get("/")
+async def root():
+    return {"message": "Bot is running"}
+
+def run_server():
+    uvicorn.run(app_web, host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
+
+# Telegram Bot
 app = Client("my_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
 @app.on_message(filters.command("start"))
@@ -32,4 +46,8 @@ async def search(client, message):
     except Exception as e:
         await msg.edit(f"⚠️ एरर: {e}")
 
-app.run()
+# सर्वर और बोट को साथ चलाना
+if __name__ == "__main__":
+    threading.Thread(target=run_server).start()
+    app.run()
+    
