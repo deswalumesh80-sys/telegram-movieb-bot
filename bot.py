@@ -6,13 +6,11 @@ from fastapi import FastAPI
 from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 
-API_ID = int(os.environ.get("API_ID", "0"))
-API_HASH = os.environ.get("API_HASH", "")
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
-ADMIN_ID = int(os.environ.get("ADMIN_ID", "0"))
+API_ID = int(os.environ.get("API_ID", "38398715"))
+API_HASH = os.environ.get("API_HASH", "9d70e41f8c67908ed547e31c2cfe9c38")
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "8588875170:AAE-2TF39moR_LksMVaYbxG5JLHB-pASoQM")
+ADMIN_ID = int(os.environ.get("ADMIN_ID", "8471574210"))
 UPI_ID = os.environ.get("UPI_ID", "example@upi")
-
-SEARCH_API = "https://autoembed.cc/api/search"
 
 web_app = FastAPI()
 
@@ -23,18 +21,18 @@ def home():
 def run_web():
     uvicorn.run(web_app, host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
 
-app = Client("toji_server_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
+app = Client("toji_movie_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 USER_PAGES = {}
 
-@app.on_message(filters.command("start") & filters.private)
+@app.on_message(filters.command("start"))
 async def start_cmd(client, message):
     text = (
         "🥷 **I am #Toji v2.1**\n"
         "🍿 **Unlimited Movies & Web Series**\n"
-        "⚡ **Direct Server Cloud Stream**\n"
+        "⚡ **Direct Cloud Server Stream**\n"
         "💯 **100% Free, always**\n"
         "🏷️ **By The Filmy Men**\n\n"
-        "🔍 *Kisi bhi movie ya web series ka naam likhein:*"
+        "🔍 *Kisi bhi movie ya web series ka naam likh kar bhejein.*"
     )
     buttons = [
         [InlineKeyboardButton("🔍 Quick Help", callback_data="help"), InlineKeyboardButton("👮 Admin Support", url=f"tg://user?id={ADMIN_ID}")],
@@ -42,20 +40,50 @@ async def start_cmd(client, message):
     ]
     await message.reply_text(text, reply_markup=InlineKeyboardMarkup(buttons))
 
-@app.on_message(filters.text & filters.private & ~filters.command(["start", "plan"]))
-async def server_search(client, message):
+@app.on_message(filters.text & ~filters.command(["start", "plan"]))
+async def movie_search(client, message):
     query = message.text.strip()
-    status_msg = await message.reply_text("🔎 **Searching cloud servers...**")
+    if query.startswith("/"):
+        return
+
+    status_msg = await message.reply_text(f"🔎 **Searching server for:** `{query}`...")
     
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "application/json"
+    }
+    
+    results = []
+    
+    # 1. Multi Search (Movies + TV Series)
     try:
-        url = f"https://api.themoviedb.org/3/search/multi?api_key=fba577b8f9e6d0a7a72d3f3f0d453b34&query={requests.utils.quote(query)}"
-        res = requests.get(url, timeout=10).json()
-        results = [i for i in res.get("results", []) if i.get("media_type") in ["movie", "tv"]]
+        url = f"https://api.themoviedb.org/3/search/multi?api_key=fba577b8f9e6d0a7a72d3f3f0d453b34&language=hi-IN&query={requests.utils.quote(query)}"
+        res = requests.get(url, headers=headers, timeout=10).json()
+        for i in res.get("results", []):
+            m_type = i.get("media_type")
+            if m_type in ["movie", "tv"]:
+                title = i.get("title") or i.get("name") or i.get("original_title") or "Movie"
+                year = (i.get("release_date") or i.get("first_air_date") or "2024")[:4]
+                results.append({"title": title, "year": year, "id": i["id"], "type": m_type})
     except Exception:
-        results = []
+        pass
+
+    # 2. English Fallback Search (Agar Hindi/Global me na mile)
+    if not results:
+        try:
+            url_en = f"https://api.themoviedb.org/3/search/multi?api_key=fba577b8f9e6d0a7a72d3f3f0d453b34&query={requests.utils.quote(query)}"
+            res_en = requests.get(url_en, headers=headers, timeout=10).json()
+            for i in res_en.get("results", []):
+                m_type = i.get("media_type")
+                if m_type in ["movie", "tv"]:
+                    title = i.get("title") or i.get("name") or "Movie"
+                    year = (i.get("release_date") or i.get("first_air_date") or "2024")[:4]
+                    results.append({"title": title, "year": year, "id": i["id"], "type": m_type})
+        except Exception:
+            pass
 
     if not results:
-        await status_msg.edit_text("❌ **Koi movie nahi mili. Sahi spelling likhein.**")
+        await status_msg.edit_text("❌ **Koi movie ya series nahi mili. Spelling check karein.**")
         return
 
     USER_PAGES[message.from_user.id] = {"query": query, "results": results, "page": 0}
@@ -73,13 +101,10 @@ async def display_page(client, chat_id, reply_id, user_id, edit=False, msg_id=No
     start = page * per_page
     current = results[start:start+per_page]
 
-    btn = [[InlineKeyboardButton("📩 Get All Results 📩", callback_data="get_all")]]
+    btn = [[InlineKeyboardButton("📩 Get All Files 📩", callback_data="get_all")]]
     for item in current:
-        title = item.get("title") or item.get("name") or "Unknown"
-        media_type = item.get("media_type", "movie").upper()
-        year = (item.get("release_date") or item.get("first_air_date") or "2024")[:4]
-        item_id = item["id"]
-        btn.append([InlineKeyboardButton(f"🎬 [{media_type}] {title} ({year}) ↗️", callback_data=f"get_{item_id}_{media_type}")])
+        btn_text = f"🎬 [{item['type'].upper()}] {item['title']} ({item['year']})"[:45] + " ↗️"
+        btn.append([InlineKeyboardButton(btn_text, callback_data=f"play_{item['id']}_{item['type']}")])
 
     nav = []
     if total_pages > 1:
@@ -97,7 +122,7 @@ async def display_page(client, chat_id, reply_id, user_id, edit=False, msg_id=No
         await client.send_message(chat_id, cap, reply_to_message_id=reply_id, reply_markup=InlineKeyboardMarkup(btn))
 
 @app.on_callback_query()
-async def handle_callbacks(client, query: CallbackQuery):
+async def callbacks(client, query: CallbackQuery):
     u_id = query.from_user.id
     d = query.data
 
@@ -109,20 +134,21 @@ async def handle_callbacks(client, query: CallbackQuery):
     elif d == "prev_p" and u_id in USER_PAGES:
         USER_PAGES[u_id]["page"] -= 1
         await display_page(client, query.message.chat.id, None, u_id, edit=True, msg_id=query.message.id)
-    elif d.startswith("get_"):
-        _, item_id, media_type = d.split("_")
-        stream_url = f"https://vidsrc.to/embed/{media_type.lower()}/{item_id}"
+    elif d.startswith("play_"):
+        _, item_id, m_type = d.split("_")
+        stream_url = f"https://vidsrc.to/embed/{m_type}/{item_id}"
+        dl_url = f"https://autoembed.cc/embed/{m_type}/{item_id}"
         
         watch_btn = InlineKeyboardMarkup([
             [InlineKeyboardButton("▶️ Watch / Stream Online", url=stream_url)],
-            [InlineKeyboardButton("⚡ Fast Download", url=stream_url)],
+            [InlineKeyboardButton("⬇️ Fast Download Server", url=dl_url)],
             [InlineKeyboardButton("❌ Close", callback_data="close_btn")]
         ])
         await query.message.reply_text(
-            f"🎬 **Movie Ready To Stream!**\n\n"
+            f"🎬 **Movie Stream Ready!**\n\n"
             f"🆔 **Server ID :** `{item_id}`\n"
-            f"⚡ **Powered By :** MovieBox Cloud API\n"
-            f"🍿 **Quality :** 1080p / 720p HD\n\n"
+            f"🍿 **Quality :** 1080p / 720p HD\n"
+            f"⚡ **Powered By :** Global Movie Server\n\n"
             f"👇 *Neeche diye gaye link par click karke dekhein:*",
             reply_markup=watch_btn
         )
@@ -130,7 +156,7 @@ async def handle_callbacks(client, query: CallbackQuery):
         plan_text = "🌸 **Premium Plans** 🌸\n\n🏷️ **Plan 1 : 50₹ - 1 Month**\n🏷️ **Plan 2 : 90₹ - 2 Month**\n🏷️ **Plan 3 : 140₹ - 3 Month**"
         btns = [
             [InlineKeyboardButton("1 Month", callback_data="pay_50"), InlineKeyboardButton("2 Month", callback_data="pay_90")],
-            [InlineKeyboardButton("← Back", callback_data="close_btn")]
+            [InlineKeyboardButton("3 Month", callback_data="pay_140"), InlineKeyboardButton("← Back", callback_data="close_btn")]
         ]
         await query.message.reply_text(plan_text, reply_markup=InlineKeyboardMarkup(btns))
     elif d.startswith("pay_"):
@@ -141,10 +167,10 @@ async def handle_callbacks(client, query: CallbackQuery):
             [InlineKeyboardButton("❌ CANCEL", callback_data="close_btn")]
         ]
         await query.message.reply_photo(photo=qr_url, caption=f"⚡ **{amt}₹ Pay karein**", reply_markup=InlineKeyboardMarkup(p_btns))
-    elif d in ["help", "ideas", "scan_aud", "get_all"]:
-        await query.answer("Active!", show_alert=False)
+    elif d in ["help", "ideas", "get_all"]:
+        await query.answer("Working option!", show_alert=False)
 
 if __name__ == "__main__":
     threading.Thread(target=run_web, daemon=True).start()
     app.run()
-    
+        
