@@ -16,19 +16,13 @@ TARGET_BOT = "ipapkornbot"
 bot = Client("main_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 user = Client("fetcher_user", api_id=API_ID, api_hash=API_HASH, session_string=SESSION_STRING)
 
-# Dummy Web Server to fix Render Port Binding
-async def handle_ping(request):
-    return web.Response(text="Bot is Alive and Running!")
+# Web server routes for Render Health Check
+routes = web.RouteTableDef()
 
-async def start_web_server():
-    server = web.Application()
-    server.router.add_get("/", handle_ping)
-    runner = web.AppRunner(server)
-    await runner.setup()
-    site = web.TCPSite(runner, "0.0.0.0", PORT)
-    await site.start()
+@routes.get("/")
+async def root_handler(request):
+    return web.Response(text="Bot is Active and Healthy!", status=200)
 
-# Bot Handlers
 @bot.on_message(filters.command("start") & filters.private)
 async def start_cmd(c, m):
     await m.reply_text(
@@ -72,13 +66,18 @@ async def handle_search(c, m):
     except Exception:
         await status_msg.edit_text("⚠️ **Error:** Server se file fetch nahi ho saki.")
 
-async def main():
-    await start_web_server()
+async def start_services():
+    # 1. Start Telegram Clients
     await user.start()
     await bot.start()
-    print(">>> Toji Engine Web Server & Bot is Running Live!")
-    await asyncio.Event().wait()
+    print(">>> Telegram Bot & Userbot Started!")
+
+    # 2. Start Web Server on Render PORT
+    app = web.Application()
+    app.add_routes(routes)
+    return app
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    web_app = asyncio.get_event_loop().run_until_complete(start_services())
+    web.run_app(web_app, host="0.0.0.0", port=PORT)
     
