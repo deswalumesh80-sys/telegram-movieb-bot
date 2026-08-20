@@ -4,15 +4,15 @@ import requests
 import uvicorn
 from fastapi import FastAPI
 from pyrogram import Client, filters
-from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 
-# Environment Variables
+# Configuration
 API_ID = int(os.environ.get("API_ID"))
 API_HASH = os.environ.get("API_HASH")
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 API_URL = os.environ.get("API_URL", "https://moviebox-api-98dn.onrender.com").strip().rstrip("/")
 
-# FastAPI Server
+# FastAPI server to keep Render web service alive
 app_web = FastAPI()
 
 @app_web.get("/")
@@ -27,88 +27,54 @@ app = Client("my_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
 @app.on_message(filters.command("start"))
 async def start(client, message):
-    await message.reply("नमस्ते! किसी भी मूवी का नाम लिखकर भेजें।")
+    await message.reply_text("👋 **नमस्ते!** किसी भी मूवी या वेब-सीरीज़ का नाम लिखकर भेजें।")
 
 @app.on_message(filters.text & ~filters.command("start"))
-async def search(client, message):
+async def search_movie(client, message):
     query = message.text.strip()
-    msg = await message.reply("🔍 सर्च कर रहा हूँ...")
+    status_msg = await message.reply_text("🔍 **सर्च कर रहा हूँ...**")
     
     try:
-        # MovieBox search query attempt
-        res = requests.get(f"{API_URL}/search?q={query}", timeout=25)
-        data = res.json()
+        url = f"{API_URL}/search?q={query}"
+        response = requests.get(url, timeout=20)
+        data = response.json()
         
-        # Data keys check karna
-        movies = []
-        if isinstance(data, list):
-            movies = data
-        elif isinstance(data, dict):
-            for key in ["results", "data", "movies", "items", "list", "search_results"]:
-                if key in data and isinstance(data[key], list):
-                    movies = data[key]
-                    break
-            if not movies and "title" in data:
-                movies = [data]
-
-        if not movies:
-            await msg.edit(f"❌ कोई मूवी नहीं मिली। (API Response: {str(data)[:100]})")
+        # API items extraction
+        items = data.get("items", [])
+        
+        if not items:
+            await status_msg.edit_text("❌ कोई मूवी नहीं मिली। कृपया नाम की स्पेलिंग चेक करें।")
             return
         
+        # Movie Buttons (Top 6 results)
         buttons = []
-        for m in movies[:6]:
-            if isinstance(m, dict):
-                title = m.get("title") or m.get("name") or m.get("movie_name") or "Watch"
-                slug = m.get("slug") or m.get("id") or m.get("subject_id") or ""
-                cb_data = f"m_{str(slug)[:50]}"
-                buttons.append([InlineKeyboardButton(text=str(title)[:35], callback_data=cb_data)])
-        
-        if buttons:
-            await msg.edit(f"🎬 **'{query}'** के लिए नतीजे:", reply_markup=InlineKeyboardMarkup(buttons))
-        else:
-            await msg.edit(f"⚠️ डेटा फॉर्मेट मेल नहीं खाया: {str(data)[:100]}")
+        for item in items[:6]:
+            title = item.get("name", "Unknown Movie")
+            subject_id = item.get("subject_id", "")
+            buttons.append([InlineKeyboardButton(text=f"🎬 {title}", callback_data=f"sub_{subject_id}")])
             
+        await status_msg.edit_text(
+            f"🍿 **'{query}'** के लिए रिजल्ट्स मिले ({len(items)}):",
+            reply_markup=InlineKeyboardMarkup(buttons)
+        )
+        
     except Exception as e:
-        await msg.edit(f"⚠️ एरर: {e}")
+        await status_msg.edit_text(f"⚠️ एरर: {e}")
+
+# Handle Button Click
+@app.on_callback_query()
+async def on_button_click(client, callback_query: CallbackQuery):
+    data = callback_query.data
+    
+    if data.startswith("sub_"):
+        subject_id = data.split("_")[1]
+        await callback_query.answer("मूवी लोड हो रही है...")
+        
+        # You can call movie details endpoint if available or show direct status
+        await callback_query.message.reply_text(
+            f"✅ **Movie Selected!**\n\n🆔 **Subject ID:** `{subject_id}`\n\n🔗 [Watch on MovieBox](https://moviebox.ph)"
+        )
 
 if __name__ == "__main__":
     threading.Thread(target=run_server, daemon=True).start()
     app.run()
-    try:
-        r = requests.get(f"{API_URL}/search?q={query}", timeout=20)
-        data = r.json()
-        
-        # API Response format handle karna (list ya dict)
-        if isinstance(data, dict):
-            movies = data.get("results") or data.get("data") or data.get("movies") or []
-        elif isinstance(data, list):
-            movies = data
-        else:
-            movies = []
-            
-        if not movies:
-            await msg.edit("❌ कोई मूवी नहीं मिली। नाम की स्पेलिंग चेक करें।")
-            return
-        
-        # Buttons generate karna
-        buttons = []
-        for m in movies[:6]:
-            if isinstance(m, dict):
-                title = m.get("title") or m.get("name") or "Watch Movie"
-                slug = m.get("slug") or m.get("id") or m.get("url") or ""
-                # Telegram callback data limit (max 64 bytes)
-                cb_data = f"m_{str(slug)[:50]}"
-                buttons.append([InlineKeyboardButton(text=title, callback_data=cb_data)])
-        
-        if buttons:
-            await msg.edit(f"🎬 **'{query}'** के लिए नतीजे:", reply_markup=InlineKeyboardMarkup(buttons))
-        else:
-            await msg.edit("❌ रिज़ल्ट पार्स नहीं हो सका।")
-            
-    except Exception as e:
-        await msg.edit(f"⚠️ एरर: {e}")
-
-if __name__ == "__main__":
-    threading.Thread(target=run_server, daemon=True).start()
-    app.run()
-    
