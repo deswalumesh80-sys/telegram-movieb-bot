@@ -2,7 +2,5 @@ pyrofork
 tgcrypto
 motor
 pymongo
-requests
 uvicorn
 fastapi
-dnspython
