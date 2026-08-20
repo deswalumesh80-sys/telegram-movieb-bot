@@ -1,6 +1,7 @@
 pyrofork
 tgcrypto
-motor
-pymongo
+beautifulsoup4
+cloudscraper
+requests
 uvicorn
 fastapi
