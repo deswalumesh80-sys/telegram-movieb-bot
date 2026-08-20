@@ -1,6 +1,8 @@
-pyrogram
+pyrofork
 tgcrypto
+motor
+pymongo
 requests
-fastapi
 uvicorn
-
+fastapi
+dnspython
