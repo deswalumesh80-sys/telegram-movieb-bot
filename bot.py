@@ -11,7 +11,7 @@ API_ID = int(os.environ.get("API_ID", "38398715"))
 API_HASH = os.environ.get("API_HASH", "9d70e41f8c67908ed547e31c2cfe9c38")
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "8588875170:AAE-2TF39moR_LksMVaYbxG5JLHB-pASoQM")
 ADMIN_ID = int(os.environ.get("ADMIN_ID", "8471574210"))
-DATABASE_GROUP_ID = int(os.environ.get("STORAGE_CHANNEL", "-1004463914808"))
+DATABASE_GROUP_ID = -1004463914808  # Locked to your Private Group ID
 DATABASE_URI = os.environ.get("DATABASE_URI", "mongodb+srv://Udeswal82_db_user:MovieBot12345@cluster0.bwrhkn0.mongodb.net/?retryWrites=true&w=majority")
 DATABASE_NAME = os.environ.get("DATABASE_NAME", "Cluster0")
 UPI_ID = os.environ.get("UPI_ID", "example@upi")
@@ -52,7 +52,7 @@ async def start_cmd(client, message):
     ]
     await message.reply_text(text, reply_markup=InlineKeyboardMarkup(buttons))
 
-# 2. Private Group File Indexer (ग्रुप में डाली गई हर वीडियो को ऑटो-इंडेक्स करेगा)
+# 2. Private Group File Indexer
 @app.on_message(filters.chat(DATABASE_GROUP_ID) & (filters.document | filters.video))
 async def auto_group_indexer(client, message):
     media = message.document or message.video
@@ -72,24 +72,24 @@ async def auto_group_indexer(client, message):
     }
     await files_col.update_one({"_id": doc["_id"]}, {"$set": doc}, upsert=True)
 
-# 3. User Private Message Handler (Auto Forward to Pvt Group -> Search -> Return Results)
+# 3. User Private Message Handler (Auto Forward to Group -> Search -> Return Results)
 @app.on_message(filters.private & ~filters.command(["start", "plan"]))
 async def handle_user_input(client, message):
-    # A. User Media Forwarding to Group
+    # User Media Forwarding to Group
     if message.document or message.video or message.audio or message.photo:
         try:
             await message.forward(chat_id=DATABASE_GROUP_ID)
-            await message.reply_text("✅ **File Private Group me forward aur save ho gayi hai!**")
+            await message.reply_text("✅ **File Private Group me save ho gayi hai!**")
         except Exception as e:
-            print(f"Error forwarding media to group: {e}")
+            print(f"Error forwarding media: {e}")
         return
 
-    # B. User Query Forwarding to Group
+    # User Query Forwarding to Group
     query = message.text.strip()
     try:
         await message.forward(chat_id=DATABASE_GROUP_ID)
     except Exception as e:
-        print(f"Error forwarding query to group: {e}")
+        print(f"Error forwarding text: {e}")
 
     # Search Matching Files from Group Database
     words = query.split()
@@ -150,7 +150,7 @@ async def display_page(client, chat_id, reply_id, user_id, edit=False, msg_id=No
     else:
         await client.send_message(chat_id, cap, reply_to_message_id=reply_id, reply_markup=InlineKeyboardMarkup(btn))
 
-# 5. Callback Handlers (Group se Video File wapas Bot chat me deliver karna)
+# 5. Callback Handlers
 @app.on_callback_query()
 async def callback_actions(client, query: CallbackQuery):
     u_id = query.from_user.id
