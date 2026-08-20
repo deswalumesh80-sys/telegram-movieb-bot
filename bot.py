@@ -1,0 +1,35 @@
+from pyrogram import Client, filters
+from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+import requests
+import os
+
+# Render से Environment Variables उठाना
+API_ID = int(os.environ.get("API_ID"))
+API_HASH = os.environ.get("API_HASH")
+BOT_TOKEN = os.environ.get("BOT_TOKEN")
+API_URL = "https://moviebox-api-98dn.onrender.com" 
+
+app = Client("my_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
+
+@app.on_message(filters.command("start"))
+async def start(client, message):
+    await message.reply("नमस्ते! मूवी का नाम लिखें।")
+
+@app.on_message(filters.text & ~filters.command("start"))
+async def search(client, message):
+    query = message.text
+    msg = await message.reply("🔍 सर्च कर रहा हूँ...")
+    try:
+        r = requests.get(f"{API_URL}/search?q={query}")
+        movies = r.json()
+        if not movies:
+            await msg.edit("❌ मूवी नहीं मिली।")
+            return
+        buttons = []
+        for m in movies[:5]:
+            buttons.append([InlineKeyboardButton(m['title'], callback_data=f"link_{m['slug']}")])
+        await msg.edit(f"🎬 '{query}' के नतीजे:", reply_markup=InlineKeyboardMarkup(buttons))
+    except Exception as e:
+        await msg.edit(f"⚠️ एरर: {e}")
+
+app.run()
