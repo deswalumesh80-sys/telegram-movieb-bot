@@ -6,12 +6,12 @@ from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 from motor.motor_asyncio import AsyncIOMotorClient
 
-# Credentials
+# Credentials & New Group Database ID
 API_ID = int(os.environ.get("API_ID", "38398715"))
 API_HASH = os.environ.get("API_HASH", "9d70e41f8c67908ed547e31c2cfe9c38")
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "8588875170:AAE-2TF39moR_LksMVaYbxG5JLHB-pASoQM")
 ADMIN_ID = int(os.environ.get("ADMIN_ID", "8471574210"))
-STORAGE_CHANNEL = int(os.environ.get("STORAGE_CHANNEL", "-1002361665487"))
+STORAGE_CHANNEL = int(os.environ.get("STORAGE_CHANNEL", "-1004463914808"))
 DATABASE_URI = os.environ.get("DATABASE_URI", "mongodb+srv://Udeswal82_db_user:MovieBot12345@cluster0.bwrhkn0.mongodb.net/?retryWrites=true&w=majority")
 DATABASE_NAME = os.environ.get("DATABASE_NAME", "Cluster0")
 UPI_ID = os.environ.get("UPI_ID", "example@upi")
@@ -21,21 +21,21 @@ mongo = AsyncIOMotorClient(DATABASE_URI)
 db = mongo[DATABASE_NAME]
 files_col = db["movies_index"]
 
-# FastAPI Keep-Alive
+# FastAPI Keep-Alive Server for Render
 web_app = FastAPI()
 
 @web_app.get("/")
 def home():
-    return {"status": "bot_running"}
+    return {"status": "bot_running_with_group_database"}
 
 def run_web():
     port = int(os.environ.get("PORT", 8080))
     uvicorn.run(web_app, host="0.0.0.0", port=port)
 
-app = Client("toji_forwarder_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
+app = Client("toji_group_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 USER_PAGES = {}
 
-# 1. Start Interface
+# 1. Start Command Handler
 @app.on_message(filters.command("start") & filters.private)
 async def start_cmd(client, message):
     text = (
@@ -52,9 +52,9 @@ async def start_cmd(client, message):
     ]
     await message.reply_text(text, reply_markup=InlineKeyboardMarkup(buttons))
 
-# 2. Channel Auto Indexer (Database me file save karega)
-@app.on_message(filters.channel & (filters.document | filters.video))
-async def auto_channel_indexer(client, message):
+# 2. Group Auto Indexer (जब ग्रुप में कोई वीडियो/फाइल डाली जाए)
+@app.on_message((filters.chat(STORAGE_CHANNEL) | filters.channel) & (filters.document | filters.video))
+async def auto_group_indexer(client, message):
     media = message.document or message.video
     if not media:
         return
@@ -72,22 +72,21 @@ async def auto_channel_indexer(client, message):
     }
     await files_col.update_one({"_id": doc["_id"]}, {"$set": doc}, upsert=True)
 
-# 3. Private Message Handler (Auto-Forward + Search System)
+# 3. Private Message Handler (Auto-Forward to Group + Search System)
 @app.on_message(filters.private & ~filters.command(["start", "plan"]))
 async def handle_private_messages(client, message):
-    # A. Agar user koi Media (Video, Audio, Document, Photo) bhejta hai -> Channel me forward
+    # A. Media Upload to Group
     if message.document or message.video or message.audio or message.photo:
         try:
             await message.copy(chat_id=STORAGE_CHANNEL)
-            await message.reply_text("✅ **File Movie Database channel me save ho gayi hai!**")
+            await message.reply_text("✅ **File Database Group me save ho gayi hai!**")
         except Exception as e:
             print(f"Error copying media: {e}")
         return
 
-    # B. Agar user Text (Movie Name) bhejta hai -> Search karega + Channel me copy karega
+    # B. Text Query Search & Group Log
     query = message.text.strip()
     
-    # Text ko Channel me record ke liye bhej dega
     try:
         await message.copy(chat_id=STORAGE_CHANNEL)
     except Exception:
@@ -134,15 +133,20 @@ async def display_page(client, chat_id, reply_id, user_id, edit=False, msg_id=No
             nav.append(InlineKeyboardButton("⏪ Prev", callback_data="prev_p"))
         btn.append(nav)
 
-    user_obj = await client.get_users(user_id)
-    cap = f"⛩️ **Requested By :** [{user_obj.first_name}](tg://user?id={user_id})\n━━━━━━━━━━━━━━━━━━━━━━"
+    try:
+        user_obj = await client.get_users(user_id)
+        u_name = user_obj.first_name
+    except Exception:
+        u_name = "User"
+
+    cap = f"⛩️ **Requested By :** [{u_name}](tg://user?id={user_id})\n━━━━━━━━━━━━━━━━━━━━━━"
     
     if edit and msg_id:
         await client.edit_message_text(chat_id, msg_id, cap, reply_markup=InlineKeyboardMarkup(btn))
     else:
         await client.send_message(chat_id, cap, reply_to_message_id=reply_id, reply_markup=InlineKeyboardMarkup(btn))
 
-# 4. Callbacks
+# 4. Callback Actions
 @app.on_callback_query()
 async def callback_actions(client, query: CallbackQuery):
     u_id = query.from_user.id
