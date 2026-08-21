@@ -1,83 +1,28 @@
-import os
-import asyncio
-from aiohttp import web
-from pyrogram import Client, filters
+import cloudscraper
+from bs4 import BeautifulSoup
+from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
-# Configuration
-API_ID = int(os.environ.get("API_ID", "38398715"))
-API_HASH = os.environ.get("API_HASH", "9d70e41f8c67908ed547e31c2cfe9c38")
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "8588875170:AAE-2TF39moR_LksMVaYbxG5JLHB-pASoQM")
-SESSION_STRING = os.environ.get("SESSION_STRING", "BQJJ6vsAxbndI_hi483TiILHUL-RNmqenVNleErZYY0Htf7E8j02A7yKRoL41MOeZtVbhyTTviQG56HQQrFIORezNimH_XeCsZ4IO2307ySSqNOYJpz6Ccncl84FLdmM6Ekm-GlED7f805aKtaUppAMKQzzsRq0XeycPc9Mh1Pmk5KdMN5brdQpcnZIst6SMc-imIzAwAiCBiWx1jcFbU2e0ZEkK0swk3C_aiHazrbk1MfiH1z2phcNXTrf--YM_XOCmemiKUroScFc1yOeoNL6Fn8lUroaz9uW-z3nqPmYI2IuyhhMuoQx37BrhXwvgY6ObUzopOdYe7JDJiRc88PLt4RPC8gAAAAH_79WiAQ")
-STORAGE_GROUP = int(os.environ.get("STORAGE_GROUP", "-1004463914808"))
-PORT = int(os.environ.get("PORT", 8080))
+scraper = cloudscraper.create_scraper()
 
-TARGET_BOT = "ipapkornbot"
-
-bot = Client("main_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
-user = Client("fetcher_user", api_id=API_ID, api_hash=API_HASH, session_string=SESSION_STRING)
-
-# Web server routes for Render Health Check
-routes = web.RouteTableDef()
-
-@routes.get("/")
-async def root_handler(request):
-    return web.Response(text="Bot is Active and Healthy!", status=200)
-
-@bot.on_message(filters.command("start") & filters.private)
-async def start_cmd(c, m):
-    await m.reply_text(
-        "🥷 **#Toji Movie Engine Online**\n\n"
-        "🍿 *Kisi bhi movie ya web series ka naam likhkar bhejein:*"
-    )
-
-@bot.on_message(filters.private & ~filters.command("start"))
-async def handle_search(c, m):
-    query = m.text.strip()
-    status_msg = await m.reply_text(f"🔍 **'{query}' search ho raha hai...**")
-    
+def search_vegamovies(query):
+    search_url = f"https://new2.vegamovies.futbol/?s={query.replace(' ', '+')}"
     try:
-        await m.forward(STORAGE_GROUP)
-    except Exception:
-        pass
-
-    try:
-        await user.send_message(TARGET_BOT, query)
-        await asyncio.sleep(4)
-
-        found_file = False
-        async for msg in user.get_chat_history(TARGET_BOT, limit=3):
-            if msg.video or msg.document:
-                found_file = True
-                file_obj = msg.video or msg.document
-                caption_text = f"🎬 **{file_obj.file_name or query}**\n\n⚡ *Provided by #Toji Engine*"
-                
-                await user.copy_message(
-                    chat_id=m.chat.id,
-                    from_chat_id=TARGET_BOT,
-                    message_id=msg.id,
-                    caption=caption_text
-                )
-                await status_msg.delete()
-                break
+        response = scraper.get(search_url, timeout=10)
+        soup = BeautifulSoup(response.text, "html.parser")
         
-        if not found_file:
-            await status_msg.edit_text("❌ **File nahi mili!** Kripya spelling check karein.")
-
+        results = []
+        # VegaMovies articles parsing
+        articles = soup.find_all("article", class_="post-item")
+        
+        for article in articles[:6]:  # Top 6 results
+            title_tag = article.find("h3", class_="entry-title") or article.find("h2", class_="entry-title")
+            link_tag = article.find("a")
+            
+            if title_tag and link_tag:
+                title = title_tag.get_text().strip()
+                link = link_tag.get("href")
+                results.append((title, link))
+        return results
     except Exception:
-        await status_msg.edit_text("⚠️ **Error:** Server se file fetch nahi ho saki.")
-
-async def start_services():
-    # 1. Start Telegram Clients
-    await user.start()
-    await bot.start()
-    print(">>> Telegram Bot & Userbot Started!")
-
-    # 2. Start Web Server on Render PORT
-    app = web.Application()
-    app.add_routes(routes)
-    return app
-
-if __name__ == "__main__":
-    web_app = asyncio.get_event_loop().run_until_complete(start_services())
-    web.run_app(web_app, host="0.0.0.0", port=PORT)
-    
+        return []
+        
