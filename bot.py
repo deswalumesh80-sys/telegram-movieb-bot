@@ -6,16 +6,15 @@ from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 import cloudscraper
 from bs4 import BeautifulSoup
 
-# Configuration
+# Correct Credentials from Screenshot
 API_ID = 38398715
-API_HASH = "9d70e41f8c67908ed547e31c2cfe9c38"
+API_HASH = "6d70e41f8c67908ed547e31c2cfe9c3a"
 BOT_TOKEN = "8588875170:AAE-2TF39moR_LksMVaYbxG5JLHB-pASoQM"
 PORT = int(os.environ.get("PORT", 8080))
 
 bot = Client("vegamovies_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 scraper = cloudscraper.create_scraper()
 
-# Health check web server for Render
 async def handle_ping(request):
     return web.Response(text="Bot is running!", status=200)
 
@@ -74,9 +73,10 @@ async def main():
     await site.start()
     
     await bot.start()
-    print(">>> Bot & Web Server Started Successfully!")
+    print(">>> Bot Started Successfully!")
     await idle()
     await bot.stop()
 
 if __name__ == "__main__":
     asyncio.run(main())
+    
