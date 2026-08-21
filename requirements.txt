@@ -1,5 +1,2 @@
-pyrofork
-tgcrypto
-aiohttp
-motor
-pymongo
+cloudscraper
+beautifulsoup4
