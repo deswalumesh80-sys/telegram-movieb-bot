@@ -1,2 +1,5 @@
+pyrofork
+tgcrypto
+aiohttp
 cloudscraper
 beautifulsoup4
